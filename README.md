@@ -1,29 +1,46 @@
-# ColorSync Utility Helper (Isolated macOS Profile Launcher)
+# ColorSync Utility Helper (Isolated Profile Launcher)
 
-A zero-dependency, automated installer for macOS that configures an isolated Firefox profile and packages a disguised launcher (`ColorSyncHelper.app`).
+A cross-platform automated installer for **macOS** and **Linux** that configures an isolated Firefox profile and packages a disguised launcher (`ColorSync Utility`).
+
+---
 
 ## Features
-- **Zero Cross-Contamination:** Isolated profile located at `~/Library/Caches/.font-renderer-data/`.
+- **Zero Cross-Contamination:** Isolated profile located at `~/Library/Caches/.font-renderer-data/` (macOS) or `~/.cache/.font-renderer-data/` (Linux).
 - **Hardened Browser Profile:** Blocks web push notifications, prevents default browser hijack, routes downloads privately.
 - **Pure Decoy-First Architecture:** 
-  - Double-clicking the app **always** displays an authentic Apple ColorSync dialog.
+  - Opening the app **always** displays an authentic system status dialog.
   - Clicking **OK** closes the window cleanly.
-  - Clicking **Check for Updates** normally displays a fake Apple server check alert.
-  - **Secret Trigger:** Holding `Option` (or `Shift`) while clicking **Check for Updates** launches the isolated Instagram session.
-- **Zero Python Dependency:** Uses macOS native `bash`, `osascript`, and Cocoa JXA.
-- **Self-Cleaning:** Clears active Terminal session history and self-destructs the installer script upon verified completion.
+  - Clicking **Check for Updates** normally displays an innocent fake server check alert.
+  - **Secret Trigger:** Holding `Shift` (or `Option`/`Alt`) while clicking **Check for Updates** launches the isolated Instagram session.
+- **Self-Cleaning:** Clears active shell session history and self-destructs the installer script upon verified completion.
 
-## 1-Line Installation Command
+---
+
+## 1-Line Installation
+
+### macOS:
 ```bash
 curl -sL https://raw.githubusercontent.com/haiva-sharshad1527/colorsync-helper/main/install.sh | bash
 ```
 
+### Linux (Ubuntu, Debian, Fedora, Arch):
+```bash
+curl -sL https://raw.githubusercontent.com/haiva-sharshad1527/colorsync-helper/main/install_linux.sh | bash
+```
+
+---
+
 ## Testing & Verification
-Run the verification suite locally:
+
+### Local Test Suite:
 ```bash
 python3 test_suite.py
 ```
-Or run the installer in diagnostic test mode:
+
+### Docker Verification (Linux):
 ```bash
-./install.sh --test
+docker run --rm -v $(pwd):/app -w /app ubuntu:latest bash -c "
+apt-get update -qq && apt-get install -y -qq curl tar xz-utils python3 python3-tk > /dev/null
+bash install_linux.sh --test
+"
 ```
