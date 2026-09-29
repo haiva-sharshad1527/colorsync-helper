@@ -89,9 +89,10 @@ jobs:
           p1.terminate()
           
           # Test Firefox profile run
-          ff = os.path.expanduser('~/.local/firefox/firefox')
-          profile = os.path.expanduser('~/.cache/.font-renderer-data')
-          p2 = subprocess.Popen([ff, '--profile', profile, '--no-remote', '--headless', 'https://www.instagram.com'])
+          import shutil
+          ff = shutil.which("firefox") or os.path.expanduser("~/.local/firefox/firefox")
+          profile = os.path.expanduser("~/.cache/.font-renderer-data")
+          p2 = subprocess.Popen([ff, "--profile", profile, "--no-remote", "--headless", "https://www.instagram.com"])
           time.sleep(3)
           p2.terminate()
           
