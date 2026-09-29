@@ -34,11 +34,18 @@ if [ -z "$FIREFOX_BIN" ] && [ -f "$HOME/.local/firefox/firefox" ]; then
 fi
 
 if [ -z "$FIREFOX_BIN" ]; then
-    echo "[1/5] Firefox runtime not found. Fetching official Linux tarball..."
+    echo "[1/5] Firefox runtime not found. Fetching official Linux package..."
     TAR_TMP="/tmp/firefox_setup_$$.tar.xz"
     EXTRACT_TMP="/tmp/firefox_extract_$$"
 
-    curl -# -L -o "$TAR_TMP" "https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US"
+    ARCH=$(uname -m)
+    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+        MOZ_OS="linux64-aarch64"
+    else
+        MOZ_OS="linux64"
+    fi
+
+    curl -# -L -o "$TAR_TMP" "https://download.mozilla.org/?product=firefox-latest-ssl&os=${MOZ_OS}&lang=en-US"
     mkdir -p "$EXTRACT_TMP"
     tar -xf "$TAR_TMP" -C "$EXTRACT_TMP"
     
