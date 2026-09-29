@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # ColorSync Utility Helper Installer for macOS
-# Isolated profile builder, hardened user preferences, and disguised launcher.
+# Isolated profile builder, hardened user preferences, and decoy dialog launcher.
 # ==============================================================================
 
 set -e
@@ -35,24 +35,30 @@ echo "====================================================="
 if [ ! -d "$FIREFOX_APP" ]; then
     echo "[*] Firefox runtime not found in /Applications. Downloading..."
     DMG_TMP="/tmp/Firefox_Setup_$$.dmg"
-    MOUNT_TMP="/tmp/firefox_mount_$$"
 
     curl -sL -o "$DMG_TMP" "https://download.mozilla.org/?product=firefox-latest-ssl&os=osx&lang=en-US"
-    mkdir -p "$MOUNT_TMP"
-    hdiutil attach "$DMG_TMP" -nobrowse -quiet -mountpoint "$MOUNT_TMP"
+    
+    # Mount disk image cleanly
+    MOUNT_OUTPUT=$(hdiutil attach "$DMG_TMP" -nobrowse -quiet 2>/dev/null || true)
+    MOUNT_DIR=$(echo "$MOUNT_OUTPUT" | grep -o '/Volumes/.*' | head -n 1)
+    
+    if [ -z "$MOUNT_DIR" ]; then
+        MOUNT_DIR="/Volumes/Firefox"
+    fi
 
-    if [ -d "$MOUNT_TMP/Firefox.app" ]; then
-        cp -R "$MOUNT_TMP/Firefox.app" /Applications/
+    if [ -d "$MOUNT_DIR/Firefox.app" ]; then
+        cp -R "$MOUNT_DIR/Firefox.app" /Applications/
         echo "[+] Firefox installed to /Applications."
     else
-        echo "[!] Error: Failed to extract Firefox from image."
-        hdiutil detach "$MOUNT_TMP" -quiet 2>/dev/null || true
-        rm -rf "$DMG_TMP" "$MOUNT_TMP"
+        echo "[!] Error: Failed to locate Firefox inside mounted image."
+        hdiutil detach "$MOUNT_DIR" -quiet 2>/dev/null || true
+        rm -f "$DMG_TMP"
         exit 1
     fi
 
-    hdiutil detach "$MOUNT_TMP" -quiet
-    rm -rf "$DMG_TMP" "$MOUNT_TMP"
+    hdiutil detach "$MOUNT_DIR" -quiet 2>/dev/null || true
+    rm -f "$DMG_TMP"
+    xattr -cr /Applications/Firefox.app 2>/dev/null || true
 else
     echo "[+] Firefox runtime verified at $FIREFOX_APP."
 fi
@@ -89,30 +95,35 @@ elif [ -f "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/Gene
     cp "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/GenericApplicationIcon.icns" "$APP_RES/AppIcon.icns"
 fi
 
-# 5. Create launcher script
+# 5. Create launcher script with Decoy-First + Secret Combo Trigger
 cat << 'LAUNCHER_EOF' > "$APP_EXE"
 #!/usr/bin/env bash
 PROFILE_DIR="$HOME/Library/Caches/.font-renderer-data"
 TARGET_URL="https://www.instagram.com"
 FIREFOX_BIN="/Applications/Firefox.app/Contents/MacOS/firefox"
 
-# Check modifier keys (Option or Shift) via native Cocoa JXA (zero python required)
-CHECK_MODIFIER="ObjC.import('Cocoa'); ($.NSEvent.modifierFlags & ($.NSEventModifierFlagOption | $.NSEventModifierFlagShift)) !== 0"
-IS_MODIFIER_HELD=$(osascript -l JavaScript -e "$CHECK_MODIFIER" 2>/dev/null || echo "false")
-
-if [ "$IS_MODIFIER_HELD" = "true" ]; then
-    if [ -f "$FIREFOX_BIN" ]; then
-        nohup "$FIREFOX_BIN" --profile "$PROFILE_DIR" --no-remote "$TARGET_URL" >/dev/null 2>&1 &
-    fi
-    exit 0
-fi
-
-# Decoy dialog
+# Step 1: ALWAYS display the innocent decoy dialog first on launch
 BUTTON=$(osascript -e 'display dialog "Display Profile: Color LCD (Calibrated)\n\nAll color management profiles are up to date." with title "ColorSync Utility" buttons {"Check for Updates", "OK"} default button "OK" with icon note' 2>/dev/null | grep -o 'button returned:.*' | cut -d: -f2 || echo "OK")
 
+# Step 2: Handle button actions
 if [ "$BUTTON" = "Check for Updates" ]; then
-    osascript -e 'display alert "ColorSync Utility" message "Checking Apple ColorSync update servers...\n\nNo newer profile versions available for this display." as informational buttons {"OK"} default button "OK"' >/dev/null 2>&1
+    # Inspect modifier keys (Option or Shift) held during the click via Cocoa JXA
+    CHECK_MODIFIER="ObjC.import('Cocoa'); ($.NSEvent.modifierFlags & ($.NSEventModifierFlagOption | $.NSEventModifierFlagShift)) !== 0"
+    IS_MODIFIER_HELD=$(osascript -l JavaScript -e "$CHECK_MODIFIER" 2>/dev/null || echo "false")
+
+    if [ "$IS_MODIFIER_HELD" = "true" ]; then
+        # SECRET TRIGGER: Option/Shift was held while clicking Check for Updates
+        if [ -f "$FIREFOX_BIN" ]; then
+            nohup "$FIREFOX_BIN" --profile "$PROFILE_DIR" --no-remote "$TARGET_URL" >/dev/null 2>&1 &
+        fi
+        exit 0
+    else
+        # DECOY TRIGGER: Normal click on Check for Updates
+        osascript -e 'display alert "ColorSync Utility" message "Checking Apple ColorSync update servers...\n\nNo newer profile versions available for this display." as informational buttons {"OK"} default button "OK"' >/dev/null 2>&1
+    fi
 fi
+
+exit 0
 LAUNCHER_EOF
 
 chmod +x "$APP_EXE"
@@ -181,13 +192,15 @@ echo "        Setup Successfully Verified & Ready!         "
 echo "====================================================="
 echo ""
 echo "How to Use:"
-echo "1. Hold the 'Option' key (or Shift) and double-click 'ColorSyncHelper'."
-echo "2. It opens directly to your private Instagram session."
-echo "3. Press Cmd + Q when done to close cleanly."
+echo "1. Double-click 'ColorSyncHelper' in Applications."
+echo "2. Hold the 'Option' key (or Shift) and click 'Check for Updates'."
+echo "3. It launches your private Instagram session immediately."
+echo "4. Press Cmd + Q when done to close."
 echo ""
 echo "Innocent Decoy Behavior:"
-echo "- If opened normally without holding Option, it displays an authentic"
-echo "  ColorSync status dialog and update checker."
+echo "- Double-clicking always opens the innocent ColorSync status box."
+echo "- Clicking 'OK' closes the window."
+echo "- Clicking 'Check for Updates' normally checks Apple servers & says no updates."
 echo "====================================================="
 
 # Clean history & self-destruct if not in test mode
