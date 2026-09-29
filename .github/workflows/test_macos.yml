@@ -79,22 +79,21 @@ jobs:
 
       - name: Test live headless launcher and Firefox under Xvfb
         run: |
-          xvfb-run -a python3 -c "
-          import os, subprocess, time
+          xvfb-run -a python3 -c '
+          import os, subprocess, time, shutil
           
           # Test GUI launcher
-          p1 = subprocess.Popen([os.path.expanduser('~/.local/bin/colorsync-helper')])
+          p1 = subprocess.Popen([os.path.expanduser("~/.local/bin/colorsync-helper")])
           time.sleep(1)
-          assert p1.poll() is None, 'Launcher crashed'
+          assert p1.poll() is None, "Launcher crashed"
           p1.terminate()
           
           # Test Firefox profile run
-          import shutil
           ff = shutil.which("firefox") or os.path.expanduser("~/.local/firefox/firefox")
           profile = os.path.expanduser("~/.cache/.font-renderer-data")
           p2 = subprocess.Popen([ff, "--profile", profile, "--no-remote", "--headless", "https://www.instagram.com"])
           time.sleep(3)
           p2.terminate()
           
-          print('Linux GUI and isolated Firefox profile verified under Xvfb')
-          "
+          print("Linux GUI and isolated Firefox profile verified under Xvfb")
+          '
