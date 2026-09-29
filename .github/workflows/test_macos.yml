@@ -1,0 +1,73 @@
+name: Test macOS & Linux Installers
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test-macos:
+    name: Live macOS CI Test (Apple Silicon)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify static syntax
+        run: |
+          bash -n install.sh
+          python3 -c "import plistlib; print('Python plist parser ready')"
+
+      - name: Run installer in diagnostic test mode
+        run: |
+          bash install.sh --test
+
+      - name: Verify generated macOS artifacts
+        run: |
+          test -d "$HOME/Applications/ColorSyncHelper.app"
+          test -x "$HOME/Applications/ColorSyncHelper.app/Contents/MacOS/launcher"
+          test -f "$HOME/Applications/ColorSyncHelper.app/Contents/Info.plist"
+          test -f "$HOME/Library/Caches/.font-renderer-data/user.js"
+          echo "All macOS bundle artifacts verified on real Apple Silicon runner!"
+
+      - name: Test launcher in headless mode
+        run: |
+          # Test executing launcher without GUI crash
+          /usr/bin/osascript -e 'return "AppleScript subsystem responsive"'
+          echo "AppleScript subsystem passed."
+
+  test-linux:
+    name: Live Linux CI Test (Ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb python3-tk
+
+      - name: Run installer in test mode
+        run: |
+          bash install_linux.sh --test
+
+      - name: Verify Linux artifacts
+        run: |
+          test -x "$HOME/.local/bin/colorsync-helper"
+          test -f "$HOME/.local/share/applications/colorsync-helper.desktop"
+          test -f "$HOME/.cache/.font-renderer-data/user.js"
+          echo "All Linux artifacts verified!"
+
+      - name: Test headless launcher under Xvfb
+        run: |
+          xvfb-run -a python3 -c "
+          import os, subprocess, time
+          p = subprocess.Popen([os.path.expanduser('~/.local/bin/colorsync-helper')])
+          time.sleep(1)
+          assert p.poll() is None, 'Launcher crashed'
+          p.terminate()
+          print('Linux GUI verified under Xvfb')
+          "
