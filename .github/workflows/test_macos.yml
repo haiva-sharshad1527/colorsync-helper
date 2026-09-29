@@ -20,6 +20,20 @@ jobs:
           bash -n install.sh
           python3 -c "import plistlib; print('Python plist parser ready')"
 
+      - name: Test fresh DMG download, hdiutil mount, and extraction on macOS
+        run: |
+          echo "Simulating completely fresh Mac without Firefox..."
+          DMG_TEST="/tmp/test_download.dmg"
+          curl -# -L -o "$DMG_TEST" "https://download.mozilla.org/?product=firefox-latest-ssl&os=osx&lang=en-US"
+          MOUNT_OUT=$(hdiutil attach "$DMG_TEST" -nobrowse -quiet)
+          MOUNT_DIR=$(echo "$MOUNT_OUT" | grep -o '/Volumes/.*' | head -n 1)
+          if [ -z "$MOUNT_DIR" ]; then MOUNT_DIR="/Volumes/Firefox"; fi
+          test -d "$MOUNT_DIR/Firefox.app"
+          echo "Verified Firefox.app inside mounted DMG on real Apple Silicon Mac!"
+          hdiutil detach "$MOUNT_DIR" -quiet
+          rm -f "$DMG_TEST"
+          echo "Fresh DMG download and hdiutil mounting verified 100%!"
+
       - name: Run installer in diagnostic test mode
         run: |
           bash install.sh --test
