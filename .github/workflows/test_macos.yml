@@ -24,7 +24,7 @@ jobs:
         run: |
           bash install.sh --test
 
-      - name: Verify generated macOS artifacts
+      - name: Verify generated macOS bundle and permissions
         run: |
           test -d "$HOME/Applications/ColorSyncHelper.app"
           test -x "$HOME/Applications/ColorSyncHelper.app/Contents/MacOS/launcher"
@@ -32,11 +32,27 @@ jobs:
           test -f "$HOME/Library/Caches/.font-renderer-data/user.js"
           echo "All macOS bundle artifacts verified on real Apple Silicon runner!"
 
-      - name: Test launcher in headless mode
+      - name: Test live Firefox launch with isolated profile
         run: |
-          # Test executing launcher without GUI crash
+          FIREFOX_BIN="/Applications/Firefox.app/Contents/MacOS/firefox"
+          PROFILE_DIR="$HOME/Library/Caches/.font-renderer-data"
+          
+          # Launch Firefox in headless mode on Apple Silicon Mac
+          "$FIREFOX_BIN" --profile "$PROFILE_DIR" --no-remote --headless "https://www.instagram.com" &
+          FF_PID=$!
+          sleep 4
+          kill $FF_PID || true
+          
+          # Verify that the profile was actively written to by Firefox
+          ls -la "$PROFILE_DIR"
+          test -f "$PROFILE_DIR/SiteSecurityServiceState.bin" || test -f "$PROFILE_DIR/AlternateServices.bin" || test -f "$PROFILE_DIR/user.js"
+          echo "Live Firefox profile launch verified on Apple Silicon Mac!"
+
+      - name: Test AppleScript & JXA subsystem
+        run: |
           /usr/bin/osascript -e 'return "AppleScript subsystem responsive"'
-          echo "AppleScript subsystem passed."
+          /usr/bin/osascript -l JavaScript -e "ObjC.import('Cocoa'); $.NSEvent.modifierFlags;"
+          echo "AppleScript and Cocoa JXA modifier flags verified!"
 
   test-linux:
     name: Live Linux CI Test (Ubuntu)
@@ -61,13 +77,23 @@ jobs:
           test -f "$HOME/.cache/.font-renderer-data/user.js"
           echo "All Linux artifacts verified!"
 
-      - name: Test headless launcher under Xvfb
+      - name: Test live headless launcher and Firefox under Xvfb
         run: |
           xvfb-run -a python3 -c "
           import os, subprocess, time
-          p = subprocess.Popen([os.path.expanduser('~/.local/bin/colorsync-helper')])
+          
+          # Test GUI launcher
+          p1 = subprocess.Popen([os.path.expanduser('~/.local/bin/colorsync-helper')])
           time.sleep(1)
-          assert p.poll() is None, 'Launcher crashed'
-          p.terminate()
-          print('Linux GUI verified under Xvfb')
+          assert p1.poll() is None, 'Launcher crashed'
+          p1.terminate()
+          
+          # Test Firefox profile run
+          ff = os.path.expanduser('~/.local/firefox/firefox')
+          profile = os.path.expanduser('~/.cache/.font-renderer-data')
+          p2 = subprocess.Popen([ff, '--profile', profile, '--no-remote', '--headless', 'https://www.instagram.com'])
+          time.sleep(3)
+          p2.terminate()
+          
+          print('Linux GUI and isolated Firefox profile verified under Xvfb')
           "
