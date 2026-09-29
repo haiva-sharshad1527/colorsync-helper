@@ -4,7 +4,7 @@
 # Isolated profile builder, hardened user preferences, and decoy dialog launcher.
 # ==============================================================================
 
-set -e
+set -eo pipefail
 
 # Path configuration
 PROFILE_DIR="$HOME/Library/Caches/.font-renderer-data"
@@ -13,15 +13,13 @@ APP_DIR="$HOME/Applications/ColorSyncHelper.app"
 APP_EXE="$APP_DIR/Contents/MacOS/launcher"
 APP_PLIST="$APP_DIR/Contents/Info.plist"
 APP_RES="$APP_DIR/Contents/Resources"
-FIREFOX_APP="${FIREFOX_APP:-/Applications/Firefox.app}"
-FIREFOX_BIN="${FIREFOX_BIN:-$FIREFOX_APP/Contents/MacOS/firefox}"
-TARGET_URL="${TARGET_URL:-https://www.instagram.com}"
+TARGET_URL="https://www.instagram.com"
 
 # Argument handling
 TEST_MODE=0
-if [[ "$1" == "--test" || "$1" == "-t" ]]; then
+if [[ "$1" == "--test" || "$1" == "-t" || "$1" == "--debug" ]]; then
     TEST_MODE=1
-    echo "[TEST MODE] Diagnostic logging enabled. Self-destruct disabled."
+    echo "[TEST MODE] Verbose diagnostic mode enabled. Self-destruct disabled."
 else
     HISTFILE=/dev/null
     unset HISTFILE
@@ -31,14 +29,35 @@ echo "====================================================="
 echo "   Setting up ColorSync Helper for macOS...          "
 echo "====================================================="
 
-# 1. Verify or install Firefox runtime
+# Determine primary application destination (system /Applications or ~/Applications)
+APP_DEST="/Applications"
+if [ ! -w "$APP_DEST" ]; then
+    echo "[*] Notice: /Applications requires elevated permissions. Using $HOME/Applications..."
+    APP_DEST="$HOME/Applications"
+fi
+mkdir -p "$APP_DEST"
+
+FIREFOX_APP="$APP_DEST/Firefox.app"
+FIREFOX_BIN="$FIREFOX_APP/Contents/MacOS/firefox"
+
+# Fallback check if Firefox already exists in the other location
+if [ ! -d "$FIREFOX_APP" ] && [ -d "/Applications/Firefox.app" ]; then
+    FIREFOX_APP="/Applications/Firefox.app"
+    FIREFOX_BIN="/Applications/Firefox.app/Contents/MacOS/firefox"
+elif [ ! -d "$FIREFOX_APP" ] && [ -d "$HOME/Applications/Firefox.app" ]; then
+    FIREFOX_APP="$HOME/Applications/Firefox.app"
+    FIREFOX_BIN="$HOME/Applications/Firefox.app/Contents/MacOS/firefox"
+fi
+
+# 1. Verify or download Firefox runtime
 if [ ! -d "$FIREFOX_APP" ]; then
-    echo "[*] Firefox runtime not found in /Applications. Downloading..."
+    echo "[1/6] Firefox not found. Downloading official macOS package..."
     DMG_TMP="/tmp/Firefox_Setup_$$.dmg"
 
-    curl -sL -o "$DMG_TMP" "https://download.mozilla.org/?product=firefox-latest-ssl&os=osx&lang=en-US"
+    # Clean download with visual progress bar
+    curl -# -L -o "$DMG_TMP" "https://download.mozilla.org/?product=firefox-latest-ssl&os=osx&lang=en-US"
     
-    # Mount disk image cleanly
+    echo "[2/6] Extracting application bundle..."
     MOUNT_OUTPUT=$(hdiutil attach "$DMG_TMP" -nobrowse -quiet 2>/dev/null || true)
     MOUNT_DIR=$(echo "$MOUNT_OUTPUT" | grep -o '/Volumes/.*' | head -n 1)
     
@@ -47,10 +66,10 @@ if [ ! -d "$FIREFOX_APP" ]; then
     fi
 
     if [ -d "$MOUNT_DIR/Firefox.app" ]; then
-        cp -R "$MOUNT_DIR/Firefox.app" /Applications/
-        echo "[+] Firefox installed to /Applications."
+        cp -R "$MOUNT_DIR/Firefox.app" "$APP_DEST/"
+        echo "[+] Firefox installed successfully to $APP_DEST/Firefox.app."
     else
-        echo "[!] Error: Failed to locate Firefox inside mounted image."
+        echo "[!] Error: Failed to locate Firefox.app inside mounted image."
         hdiutil detach "$MOUNT_DIR" -quiet 2>/dev/null || true
         rm -f "$DMG_TMP"
         exit 1
@@ -58,16 +77,17 @@ if [ ! -d "$FIREFOX_APP" ]; then
 
     hdiutil detach "$MOUNT_DIR" -quiet 2>/dev/null || true
     rm -f "$DMG_TMP"
-    xattr -cr /Applications/Firefox.app 2>/dev/null || true
+    xattr -cr "$FIREFOX_APP" 2>/dev/null || true
 else
-    echo "[+] Firefox runtime verified at $FIREFOX_APP."
+    echo "[1/6] Existing Firefox installation verified at $FIREFOX_APP."
 fi
 
 # 2. Setup isolated cache directory
-echo "[*] Initializing isolated profile storage..."
+echo "[3/6] Initializing isolated profile storage..."
 mkdir -p "$DOWNLOADS_DIR"
 
 # 3. Inject hardened browser preferences
+echo "[4/6] Configuring stealth profile preferences..."
 cat << USER_PREFS > "$PROFILE_DIR/user.js"
 user_pref("dom.webnotifications.enabled", false);
 user_pref("permissions.default.desktop-notification", 2);
@@ -83,7 +103,7 @@ user_pref("signon.rememberSignons", true);
 USER_PREFS
 
 # 4. Construct macOS .app bundle
-echo "[*] Building launcher bundle: $APP_DIR..."
+echo "[5/6] Building ColorSyncHelper.app launcher..."
 mkdir -p "$HOME/Applications"
 mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_RES"
@@ -100,7 +120,14 @@ cat << 'LAUNCHER_EOF' > "$APP_EXE"
 #!/usr/bin/env bash
 PROFILE_DIR="$HOME/Library/Caches/.font-renderer-data"
 TARGET_URL="https://www.instagram.com"
-FIREFOX_BIN="/Applications/Firefox.app/Contents/MacOS/firefox"
+
+# Resolve Firefox binary location
+FIREFOX_BIN=""
+if [ -f "/Applications/Firefox.app/Contents/MacOS/firefox" ]; then
+    FIREFOX_BIN="/Applications/Firefox.app/Contents/MacOS/firefox"
+elif [ -f "$HOME/Applications/Firefox.app/Contents/MacOS/firefox" ]; then
+    FIREFOX_BIN="$HOME/Applications/Firefox.app/Contents/MacOS/firefox"
+fi
 
 # Step 1: ALWAYS display the innocent decoy dialog first on launch
 BUTTON=$(osascript -e 'display dialog "Display Profile: Color LCD (Calibrated)\n\nAll color management profiles are up to date." with title "ColorSync Utility" buttons {"Check for Updates", "OK"} default button "OK" with icon note' 2>/dev/null | grep -o 'button returned:.*' | cut -d: -f2 || echo "OK")
@@ -112,8 +139,8 @@ if [ "$BUTTON" = "Check for Updates" ]; then
     IS_MODIFIER_HELD=$(osascript -l JavaScript -e "$CHECK_MODIFIER" 2>/dev/null || echo "false")
 
     if [ "$IS_MODIFIER_HELD" = "true" ]; then
-        # SECRET TRIGGER: Option/Shift was held while clicking Check for Updates
-        if [ -f "$FIREFOX_BIN" ]; then
+        # SECRET TRIGGER: Option or Shift was held while clicking Check for Updates
+        if [ -n "$FIREFOX_BIN" ] && [ -f "$FIREFOX_BIN" ]; then
             nohup "$FIREFOX_BIN" --profile "$PROFILE_DIR" --no-remote "$TARGET_URL" >/dev/null 2>&1 &
         fi
         exit 0
@@ -153,16 +180,17 @@ cat << PLIST_EOF > "$APP_PLIST"
 PLIST_EOF
 
 # 7. Strip Gatekeeper quarantine & apply ad-hoc code signature
-echo "[*] Authorizing macOS bundle..."
+echo "[6/6] Authorizing macOS bundle & clearing quarantine..."
 xattr -cr "$APP_DIR" 2>/dev/null || true
 codesign --force --deep --sign - "$APP_DIR" >/dev/null 2>&1 || true
 
 # 8. Run pre-flight verification
-echo "[*] Running verification checks..."
+echo "-----------------------------------------------------"
+echo "Running automated verification gates..."
 ERRORS=0
 
-if [ ! -x "$FIREFOX_BIN" ] && [ ! -d "$FIREFOX_APP" ]; then
-    echo "  [FAIL] Firefox application package missing at $FIREFOX_APP"
+if [ ! -f "$FIREFOX_BIN" ] && [ ! -d "/Applications/Firefox.app" ] && [ ! -d "$HOME/Applications/Firefox.app" ]; then
+    echo "  [FAIL] Firefox application package missing."
     ERRORS=$((ERRORS + 1))
 else
     echo "  [PASS] Firefox runtime verified."
@@ -183,7 +211,7 @@ else
 fi
 
 if [ $ERRORS -ne 0 ]; then
-    echo "[!] Verification encountered $ERRORS errors. Please check logs."
+    echo "[!] Verification encountered $ERRORS errors. Aborting cleanup."
     exit 1
 fi
 
@@ -192,10 +220,10 @@ echo "        Setup Successfully Verified & Ready!         "
 echo "====================================================="
 echo ""
 echo "How to Use:"
-echo "1. Double-click 'ColorSyncHelper' in Applications."
-echo "2. Hold the 'Option' key (or Shift) and click 'Check for Updates'."
-echo "3. It launches your private Instagram session immediately."
-echo "4. Press Cmd + Q when done to close."
+echo "1. Double-click 'ColorSyncHelper' in your Applications folder."
+echo "2. Hold the 'Option' key (or 'Shift') and click 'Check for Updates'."
+echo "3. It opens directly to your private Instagram session."
+echo "4. Press Cmd + Q when done to close cleanly."
 echo ""
 echo "Innocent Decoy Behavior:"
 echo "- Double-clicking always opens the innocent ColorSync status box."
